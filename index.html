@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#050611" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>NEON DERBY 3D // 3D 사이버 경마 제비뽑기 시뮬레이터</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700;900&family=Orbitron:wght@600;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <!-- Three.js r128 UMD (works cleanly over both HTTP and local file://) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js'"></script>
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="bg-glow bg-glow-1" aria-hidden="true"></div>
+  <div class="bg-glow bg-glow-2" aria-hidden="true"></div>
+  <canvas id="fxCanvas" class="fx-canvas" aria-hidden="true"></canvas>
+
+  <div class="app-shell">
+    <!-- Header -->
+    <header class="top-bar">
+      <div class="brand">
+        <div class="brand-badge" id="stadiumHeaderBadge">3D G1 CYBER CIRCUIT</div>
+        <h1 class="brand-title">
+          <span class="neon-cyan">NEON</span>
+          <span class="neon-pink">DERBY</span>
+          <span class="neon-3d">3D</span>
+        </h1>
+        <a href="../index.html" class="mode-switch-link" title="2D 버전으로 돌아가기">← 2D 버전</a>
+      </div>
+
+      <div class="top-controls">
+        <label class="cyber-toggle hazard-toggle" title="트랙 위 3D 물리 장애물(허들·빙판·늪지·터보 패드)을 활성화합니다">
+          <input type="checkbox" id="obstaclesToggle" checked />
+          <span class="toggle-track">
+            <span class="toggle-thumb"></span>
+          </span>
+          <span class="toggle-label">🚧 장애물</span>
+        </label>
+
+        <label class="cyber-toggle encounter-toggle" title="레이스 중 취객 난입·관중 투척물·발목 삠·비둘기 떼 등 현실 경기장 돌발 이벤트를 활성화합니다">
+          <input type="checkbox" id="encountersToggle" checked />
+          <span class="toggle-track">
+            <span class="toggle-thumb"></span>
+          </span>
+          <span class="toggle-label">⚠️ 돌발 인카운터</span>
+        </label>
+
+        <label class="cyber-toggle" title="1착 우승 항목을 다음 레이스에서 자동으로 제외합니다 (제비뽑기 모드)">
+          <input type="checkbox" id="eliminationToggle" />
+          <span class="toggle-track">
+            <span class="toggle-thumb"></span>
+          </span>
+          <span class="toggle-label">우승 자동 제외</span>
+        </label>
+
+        <button id="soundToggleBtn" class="icon-btn active" type="button" title="사운드 켜기/끄기" aria-pressed="true">
+          <span class="btn-icon" id="soundIcon">🔊</span>
+          <span class="btn-text">SFX ON</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main 3D Derby Layout -->
+    <main class="derby-grid">
+      <!-- Left: 3D WebGL Stadium Viewport & Controls -->
+      <section class="race-stage" aria-label="3D 경마 레이스 트랙">
+        <!-- Live Commentary & Race Phase HUD -->
+        <div class="hud-top-row">
+          <div class="commentary-box">
+            <span class="live-pill" id="phaseBadge">3D STANDBY</span>
+            <p id="commentaryText" class="commentary-text">3D 스타디움 게이트에 주자들이 입장했습니다. 레이스를 시작하세요!</p>
+          </div>
+          <div class="distance-box">
+            <span class="dist-label" id="stadiumNameChip">🏜️ 사막 굴절 서킷</span>
+            <span id="distanceRemaining" class="dist-value">1200m</span>
+          </div>
+        </div>
+
+        <!-- Uma Musume Style Course Minimap -->
+        <div class="minimap-wrap" aria-label="코스 진행 상황">
+          <span class="minimap-tag">START</span>
+          <div class="minimap-track" id="minimapTrack">
+            <div class="minimap-spurt-zone" title="라스트 스퍼트 구간"></div>
+            <div id="minimapPins" class="minimap-pins"></div>
+          </div>
+          <span class="minimap-tag goal">GOAL</span>
+        </div>
+
+        <!-- 3D WebGL Viewport Container -->
+        <div class="track-viewport" id="trackViewport">
+          <div id="threeMount" class="three-mount" aria-label="3D 경마 시뮬레이션 뷰포트"></div>
+
+          <!-- 2D Corner Circuit Radar Overlay (Bottom-Left) -->
+          <canvas id="radarCanvas" class="radar-canvas" width="166" height="104" aria-label="서킷 미니 레이더"></canvas>
+
+          <!-- Live Standings HUD Overlay (Top-Left) -->
+          <div class="live-leaderboard" id="liveLeaderboard">
+            <div class="lb-title">LIVE 순위</div>
+            <ol id="leaderboardList" class="lb-list"></ol>
+          </div>
+
+          <!-- Speed & Flash Overlay -->
+          <div id="speedLinesOverlay" class="speed-lines-overlay hidden" aria-hidden="true"></div>
+          <div id="photoFlashOverlay" class="photo-flash-overlay" aria-hidden="true"></div>
+
+          <!-- Skill Cut-in Banner Overlay (Top-Right) -->
+          <div id="skillCutin" class="skill-cutin hidden" aria-live="polite">
+            <div class="skill-cutin-tag">★ SKILL ACTIVATED</div>
+            <div class="skill-cutin-body">
+              <span id="skillCutinRunner" class="skill-runner">주자명</span>
+              <span id="skillCutinName" class="skill-name">고유 스킬 발동!</span>
+            </div>
+          </div>
+
+          <!-- Random Encounter Warning Banner Overlay (Bottom-Right) -->
+          <div id="encounterCutin" class="encounter-cutin hidden" aria-live="assertive">
+            <div class="encounter-cutin-tag" id="encounterCutinTag">⚠ WARNING // RANDOM ENCOUNTER</div>
+            <div class="encounter-cutin-body">
+              <span id="encounterCutinTitle" class="encounter-title">돌발 상황!</span>
+              <span id="encounterCutinDesc" class="encounter-desc">랜덤 주자에게 디버프 발동!</span>
+            </div>
+          </div>
+
+          <!-- Countdown / Photo Finish Big Overlay -->
+          <div id="centerBanner" class="center-banner hidden">
+            <span id="centerBannerText">READY</span>
+          </div>
+
+          <!-- WebGL / Offline Fallback Notice -->
+          <div id="webglError" class="webgl-error hidden">
+            <h3>3D 그래픽 엔진을 불러올 수 없습니다</h3>
+            <p>인터넷 연결(Three.js CDN) 또는 브라우저의 WebGL 지원 여부를 확인해 주세요.</p>
+          </div>
+        </div>
+
+        <!-- Race Control Console -->
+        <div class="race-console">
+          <!-- Stadium Selector Row -->
+          <div class="stadium-row" role="group" aria-label="경기장 선택">
+            <span class="option-label">3D 경기장</span>
+            <div class="segmented-btns stadium-btns" id="stadiumGroup">
+              <button type="button" class="seg-btn" data-stadium="TURF">🌿 잔디 오벌</button>
+              <button type="button" class="seg-btn active" data-stadium="DIRT">🏜️ 사막 굴절</button>
+              <button type="button" class="seg-btn" data-stadium="ICE">❄️ 빙하 서킷</button>
+              <button type="button" class="seg-btn" data-stadium="VOLCANO">🌋 볼케이노 링</button>
+              <button type="button" class="seg-btn" data-stadium="RANDOM">🎲 랜덤</button>
+            </div>
+          </div>
+
+          <div class="console-options">
+            <div class="option-group" role="group" aria-label="코스 거리 선택">
+              <span class="option-label">코스 거리</span>
+              <div class="segmented-btns" id="distanceGroup">
+                <button type="button" class="seg-btn active" data-dist="1200">단거리 1200m</button>
+                <button type="button" class="seg-btn" data-dist="1600">마일 1600m</button>
+                <button type="button" class="seg-btn" data-dist="2400">중거리 2400m</button>
+                <button type="button" class="seg-btn" data-dist="3200">장거리 3200m</button>
+              </div>
+            </div>
+
+            <div class="option-group" role="group" aria-label="3D 카메라 및 배속">
+              <button id="cameraToggleBtn" class="seg-btn speed-btn fast" type="button" title="3D 추적 / 중계 방송 / 헬기 조감도 전환 (단축키 C)">🎥 3D 추적</button>
+              <button id="speedToggleBtn" class="seg-btn speed-btn" type="button">1.0x</button>
+            </div>
+          </div>
+
+          <div class="race-actions">
+            <button id="startRaceBtn" class="arcade-start-btn" type="button">
+              <span class="start-btn-main">🏁 3D GATE OPEN · 레이스 시작</span>
+              <span class="start-btn-sub desktop-hint">SPACE 출발 · C 카메라 전환 · 드래그로 3D 시점 회전</span>
+              <span class="start-btn-sub mobile-hint">터치하여 출발 · 화면 드래그로 시점 회전 · 두 번 탭 시점 전환</span>
+            </button>
+            <button id="shuffleGateBtn" class="secondary-btn" type="button" title="게이트 번호 무작위 재배정">
+              🔀 게이트 섞기
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right: Cyber Paddock Control Deck -->
+      <aside class="control-deck" aria-label="출전 주자 및 기록 관리">
+        <div class="deck-tabs" role="tablist">
+          <button class="deck-tab active" data-tab="entries" role="tab" aria-selected="true" type="button">
+            출전 주자 <span class="tab-count" id="activeCountBadge">0</span>
+          </button>
+          <button class="deck-tab" data-tab="presets" role="tab" aria-selected="false" type="button">
+            프리셋
+          </button>
+          <button class="deck-tab" data-tab="history" role="tab" aria-selected="false" type="button">
+            우승 기록 <span class="tab-count" id="historyCountBadge">0</span>
+          </button>
+        </div>
+
+        <!-- Tab 1: Entries (Paddock) -->
+        <div class="tab-panel active" id="tab-entries" role="tabpanel">
+          <form id="addEntryForm" class="add-entry-form">
+            <input
+              type="text"
+              id="entryInput"
+              class="cyber-input"
+              placeholder="출전 주자 입력 (예: 김치찌개, 홍길동)"
+              maxlength="32"
+              autocomplete="off"
+            />
+            <button type="submit" class="add-btn">+ 출전</button>
+          </form>
+
+          <div class="entry-toolbar">
+            <button id="bulkToggleBtn" class="mini-btn" type="button">📋 여러 명 등록</button>
+            <button id="restoreAllBtn" class="mini-btn hidden" type="button">↺ 제외 복구 (<span id="excludedCountText">0</span>)</button>
+            <button id="clearEntriesBtn" class="mini-btn danger" type="button">🗑 전체 삭제</button>
+          </div>
+
+          <div id="bulkPanel" class="bulk-panel hidden">
+            <textarea
+              id="bulkTextarea"
+              class="cyber-textarea"
+              rows="5"
+              placeholder="한 줄에 하나씩 주자를 입력하세요.&#10;예)&#10;김치찌개&#10;돈까스&#10;라멘"
+            ></textarea>
+            <div class="bulk-actions">
+              <button id="bulkReplaceBtn" class="mini-btn primary" type="button">목록 교체</button>
+              <button id="bulkAppendBtn" class="mini-btn" type="button">기존에 추가</button>
+              <button id="bulkCancelBtn" class="mini-btn" type="button">닫기</button>
+            </div>
+          </div>
+
+          <div class="entry-list-header">
+            <span>게이트 / 주자명</span>
+            <span>각질 · 우승확률 비중</span>
+          </div>
+
+          <ul id="entryList" class="entry-list"></ul>
+        </div>
+
+        <!-- Tab 2: Presets -->
+        <div class="tab-panel" id="tab-presets" role="tabpanel">
+          <p class="panel-hint">프리셋을 선택하면 출전 명단이 즉시 세팅됩니다.</p>
+          <div class="preset-grid" id="presetGrid"></div>
+
+          <div class="number-gen-box">
+            <h3>🔢 번호 경주 생성 (최대 24명)</h3>
+            <div class="number-gen-row">
+              <label>
+                <span>시작</span>
+                <input type="number" id="numStart" value="1" min="0" max="999" class="cyber-input small" />
+              </label>
+              <span class="tilde">~</span>
+              <label>
+                <span>끝</span>
+                <input type="number" id="numEnd" value="8" min="1" max="999" class="cyber-input small" />
+              </label>
+              <button id="generateNumbersBtn" class="add-btn" type="button">생성</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 3: History -->
+        <div class="tab-panel" id="tab-history" role="tabpanel">
+          <div class="history-toolbar">
+            <span class="panel-hint">역대 G1 레이스 1착 우승 기록입니다.</span>
+            <button id="clearHistoryBtn" class="mini-btn danger" type="button">기록 비우기</button>
+          </div>
+          <ul id="historyList" class="history-list"></ul>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Photo Finish & Official Standings Modal -->
+  <div id="resultModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="winnerTitle">
+    <div class="modal-card">
+      <div class="modal-glow-bar" id="modalGlowBar"></div>
+      <div class="modal-kicker">🏆 OFFICIAL 3D G1 FINISH RESULT 🏆</div>
+      <div class="winner-meta-row">
+        <span class="winner-badge" id="winnerBadge">1착</span>
+        <span class="winner-style-pill" id="winnerStylePill">도주</span>
+        <span class="winner-time-pill" id="winnerTimePill">1:08.42</span>
+      </div>
+      <h2 id="winnerTitle" class="winner-name">우승 주자</h2>
+      <p id="winnerSubtext" class="winner-subtext">치열한 접전 끝에 결승선을 가장 먼저 통과했습니다!</p>
+
+      <div class="standings-box">
+        <div class="standings-header">
+          <span>착순</span>
+          <span>주자</span>
+          <span>착차 / 기록</span>
+        </div>
+        <ol id="standingsList" class="standings-list"></ol>
+      </div>
+
+      <div class="modal-actions">
+        <button id="modalExcludeBtn" class="modal-btn warning" type="button">
+          1착 우승자 제외하기
+        </button>
+        <div class="modal-btn-row">
+          <button id="modalRaceAgainBtn" class="modal-btn primary" type="button">
+            🏁 다시 레이스
+          </button>
+          <button id="modalCloseBtn" class="modal-btn ghost" type="button">
+            닫기
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js" defer></script>
+</body>
+</html>
